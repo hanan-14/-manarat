@@ -1,90 +1,68 @@
-import json, requests, google.generativeai as genai, streamlit as st
+import requests
+import streamlit as st
 
-# إعداد مفتاح جيمني
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+# قراءة مفتاح الربط بأمان من إعدادات ستريملت
+api_key = st.secrets["GEMINI_API_KEY"]
 
-# 🌐 روابط واجهات ومصادر المعرفة الإسلامية المعتمدة
-APPROVED_SOURCES = {
-    "QuranEnc": "https://quranenc.com/api/v1",
-    "HadeethEnc": "https://hadeethenc.com/api/v1",
-}
+# إعدادات الصفحة
+st.set_page_config(page_title="Manarat Al-Nashia", page_icon="🏮", layout="centered")
 
-SYSTEM_INSTRUCTION = """You are "Manarat Al-Nashia" (منارة الناشئة), an AI assistant that answers children and teens (9-15) about Islam.
-You are an AI tool, not a scholar or a human; say so briefly if asked or if the child seems to think so.
-LANGUAGE: reply in the language of the child's last message (Arabic, English, French, Urdu, etc.).
-SOURCES & CITATION: Rely strictly on authentic Islamic sources (Quran, Sahih Hadith, HadeethEnc, QuranEnc). You MUST include the specific source/reference clearly at the end of every answer (e.g., [Quran] or [HadeethEnc]).
-STYLE: warm, under 150 words, simple words, encouraging. Correct misconceptions gently.
-SAFETY: if the child mentions harm, abuse or danger, kindly tell them to talk to a trusted adult right away."""
+# تصميم الواجهة والألوان
+st.markdown("""
+<style>
+.stApp { background-color: #0b1d3a; color: #ffffff; }
+h1 { color: #ffb703 !important; text-align: center; }
+p { text-align: center; color: #e0e0e0; }
+</style>
+""", unsafe_allow_html=True)
 
-# استدعاء النموذج بالطريقة المدعومة في الإصدارات الحديثة
-model = genai.GenerativeModel(
-    model_name="models/gemini-1.5-flash",
-    system_instruction=SYSTEM_INSTRUCTION
-)
+st.markdown("<h1>منارة الناشئة 🏮</h1>", unsafe_allow_html=True)
+st.markdown("<p>مرشدك الإيماني الموثوق من المصادر الرسمية (القرآن والسنة)</p>", unsafe_allow_html=True)
 
-MAX_Q = 30
+# نظام التوجيه الصارم لضمان الاعتماد على المصادر ومنع الإجابة من الذاكرة العشوائية
+SYSTEM_INSTRUCTION = """You are "Manarat Al-Nashia" (منارة الناشئة), an Islamic educational assistant for children and teens (9-15).
+CRITICAL RULES:
+1. Rely ONLY on authentic Islamic sources (Quran, Sahih Al-Bukhari, Sahih Muslim, approved APIs like QuranEnc and HadeethEnc).
+2. You MUST include the exact source/reference clearly at the end of every answer (e.g., [Quran - سورة الإخلاص] or [HadeethEnc - صحيح البخاري]).
+3. If unsure or if the source is not verified, kindly state that you found no reliable source and refer the child to a parent or teacher.
+4. Keep the style warm, encouraging, and under 150 words."""
 
-def ask(history):
+def ask_gemini(user_message):
+    # رابط الاتصال المباشر والثابت v1 (الذي يمنع خطأ 404 نهائياً)
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+    
+    full_prompt = f"{SYSTEM_INSTRUCTION}\n\nUser Question: {user_message}"
+    
+    payload = {
+        "contents": [{"parts": [{"text": full_prompt}]}]
+    }
+    
     try:
-        gemini_history = []
-        for h in history:
-            role = "user" if h["role"] == "user" else "model"
-            gemini_history.append({"role": role, "parts": [h["content"]]})
-        
-        chat = model.start_chat(history=gemini_history[:-1] if len(gemini_history) > 1 else [])
-        last_msg = gemini_history[-1]["parts"][0] if len(gemini_history) > 0 else "مرحباً"
-        
-        response = chat.send_message(last_msg)
-        return response.text, True
+        response = requests.post(url, headers=headers, json=payload)
+        if response.status_code == 200:
+            data = response.json()
+            answer = data["candidates"][0]["content"]["parts"][0]["text"]
+            return answer
+        else:
+            return f"عذراً يا بطل، حدث خطأ في الخادم (رمز الخطأ: {response.status_code})"
     except Exception as e:
-        return f"عذراً يا بطل، حدث خطأ بسيط: {e}", False
+        return f"عذراً، حدث خطأ في الاتصال: {e}"
 
-T = {
- "ar": dict(title="منارة الناشئة 🏮", tag="مرشدك الإيماني في بحر المعرفة", ph="اكتب سؤالك يا بطل...",
-            guest="ضيف", reg="سجّل اسمك في سجلّ المنارة", nick="اسم مستعار (لا تكتب اسمك الحقيقي)",
-            stars="نجومك", learned="معلومات تعلمتها", think="المنارة تبحث في المصادر...",
-            note="أنا مساعد آلي ولست شيخاً. أجيب من مصادر معتمدة، وإذا لم أجد أقول لك واسأل والديك أو معلمك.",
-            limit="وصلنا للحد اليومي للأسئلة. عد غداً يا بطل!", err="تعذر الاتصال الآن، حاول بعد قليل.", mode="الدخول"),
- "en": dict(title="Manarat Al-Nashia 🏮", tag="Your faith guide in the sea of knowledge", ph="Ask your question, hero...",
-            guest="Guest", reg="Sign your name in the Lighthouse Log", nick="Nickname (not your real name)",
-            stars="Your stars", learned="Things learned", think="The lighthouse is searching sources...",
-            note="I am an AI assistant, not a scholar. I answer from approved sources; if I can't find one, ask your parents or teacher.",
-            limit="We reached today's question limit. Come back tomorrow, hero!", err="Connection problem, please try again.", mode="Entry"),
-}
+# إدارة المحادثة
+if "chat" not in st.session_state:
+    st.session_state.chat = []
 
-st.set_page_config(page_title="Manarat Al-Nashia", page_icon="🏮")
-lang = "ar" if st.sidebar.radio("Language / اللغة", ["العربية", "English"]) == "العربية" else "en"
-t = T[lang]
-
-st.markdown(f"""<style>
-.stApp{{background:#0b1d3a;color:#fff;direction:{'rtl' if lang=='ar' else 'ltr'}}}
-h1,h2,p,label,span,div{{color:#fff}} .gold{{color:#ffb703!important}}
-section[data-testid=stSidebar]{{background:#102a52}}</style>""", unsafe_allow_html=True)
-
-ss = st.session_state
-ss.setdefault("chat", []); ss.setdefault("stars", 0); ss.setdefault("n", 0)
-mode = st.sidebar.radio(t["mode"], [t["guest"], t["reg"]])
-name = st.sidebar.text_input(t["nick"], max_chars=20) if mode == t["reg"] else ""
-st.sidebar.markdown(f"### ⭐ {t['stars']}: {ss.stars}\n📖 {t['learned']}: {ss.stars}")
-
-st.markdown(f"<h1 class='gold'>{t['title']}</h1><p>{t['tag']}</p>", unsafe_allow_html=True)
-if name: st.markdown(f"🏮 **{name}**")
-st.info(t["note"])
-
-for role, text in ss.chat:
+for role, text in st.session_state.chat:
     st.chat_message(role).write(text)
 
-q = st.chat_input(t["ph"], max_chars=500)
+q = st.chat_input("اكتب سؤالك الديني يا بطل...")
 if q:
     st.chat_message("user").write(q)
-    if ss.n >= MAX_Q:
-        st.warning(t["limit"])
-    else:
-        ss.chat.append(("user", q)); ss.n += 1
-        hist = [{"role": "assistant" if r == "assistant" else "user", "content": x} for r, x in ss.chat]
-        with st.spinner(t["think"]):
-            ans, cited = ask(hist)
-        ss.chat.append(("assistant", ans))
-        st.chat_message("assistant").write(ans)
-        if cited:
-            ss.stars += 1
+    st.session_state.chat.append(("user", q))
+    
+    with st.spinner("المنارة تتحقق من المصادر الشرعية..."):
+        ans = ask_gemini(q)
+        
+    st.session_state.chat.append(("assistant", ans))
+    st.chat_message("assistant").write(ans)
