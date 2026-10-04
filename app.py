@@ -1,7 +1,7 @@
 import requests
 import streamlit as st
 
-# سحب المفتاح من إعدادات ستريملت
+# سحب المفتاح من Secrets
 api_key = st.secrets.get("GEMINI_API_KEY", "").strip()
 
 st.set_page_config(page_title="Manarat Al-Nashia", page_icon="🏮", layout="centered")
@@ -18,8 +18,13 @@ def ask_gemini(user_message):
     if not api_key:
         return "خطأ: لم يتم ضبط المفتاح في إعدادات Secrets.", False
         
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-    headers = {"Content-Type": "application/json"}
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    
+    # تمرير مفتاح AQ. داخل الهيدر المخصص لطلب جوجل الرسمي x-goog-api-key
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key
+    }
     
     full_prompt = f"{SYSTEM_INSTRUCTION}\n\nUser Question: {user_message}"
     payload = {"contents": [{"parts": [{"text": full_prompt}]}]}
