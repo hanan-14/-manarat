@@ -1,9 +1,19 @@
-import json, requests, anthropic, streamlit as st
+import json, requests, google.generativeai as genai, streamlit as st
 
-MODEL = st.secrets.get("MODEL", "claude-sonnet-5-5")
+# إعداد مفتاح جيمني والنموذج المجاني السريع
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+
+generation_config = {"temperature": 0.7}
+model = genai.GenerativeModel(
+    model_name="gemini-1.5-flash",
+    system_instruction=SYSTEM,
+    generation_config=generation_config
+)
+
 HE = "https://hadeethenc.com/api/v1"
 QE = "https://quranenc.com/api/v1"
 MAX_Q = 30  # حد الأسئلة في الجلسة لحماية الرصيد
+
 
 SYSTEM = """You are "Manarat Al-Nashia" (منارة الناشئة), an AI assistant that answers children and teens (9-15) about Islam.
 You are an AI tool, not a scholar or a human; say so briefly if asked or if the child seems to think so.
@@ -51,21 +61,27 @@ def run_tool(name, a):
         return f"error: {e}", False
 
 def ask(history):
-    client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
-    msgs, cited = list(history), False
-    for _ in range(7):
-        r = client.messages.create(model=MODEL, max_tokens=1200, system=SYSTEM, tools=TOOLS, messages=msgs)
-        if r.stop_reason != "tool_use":
-            break
-        msgs.append({"role": "assistant", "content": r.content})
-        res = []
-        for b in r.content:
-            if b.type == "tool_use":
-                out, ok = run_tool(b.name, b.input)
-                cited = cited or ok
-                res.append({"type": "tool_result", "tool_use_id": b.id, "content": out})
-        msgs.append({"role": "user", "content": res})
-    return "".join(b.text for b in r.content if b.type == "text"), cited
+    # تهيئة نموذج جيمني مع تعليمات النظام
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash",
+        system_instruction=SYSTEM
+    )
+    
+    # تحويل سجل المحادثة بالشكل الذي يفهمه جيمني
+    gemini_history = []
+    for h in history:
+        role = "user" if h["role"] == "user" else "model"
+        gemini_history.append({"role": role, "parts": [h["content"]]})
+    
+    # بدء المحادثة وإرسال آخر رسالة
+    chat = model.start_chat(history=gemini_history[:-1] if len(gemini_history) > 0 else [])
+    last_message = gemini_history[-1]["parts"][0] if len(gemini_history) > 0 else "مرحباً"
+    
+    response = chat.send_message(last_message)
+    cited = False # افتراضي
+    return response.text, cited
+
 
 T = {
  "ar": dict(title="منارة الناشئة 🏮", tag="مرشدك الإيماني في بحر المعرفة", ph="اكتب سؤالك يا بطل...",
